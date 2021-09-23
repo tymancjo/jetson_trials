@@ -45,7 +45,8 @@ def setHandIK(x, y, z=0, h=0, a0=60):
         fi = math.degrees(math.acos((m**2 -0.25 -0.25)/(-0.5)))
     
     dzetta = math.degrees(math.atan2(-y,-x)) 
-    gamma = math.degrees(math.atan2(z+0.01,x))
+    # gamma = math.degrees(math.atan2(z+0.01,0.1*x))
+    gamma = 160 * z 
 
     if dzetta < 0: dzetta = 360 + dzetta
     if gamma < 0: gamma = 360 + gamma
@@ -99,10 +100,11 @@ except:
 
 # load the pose estimation model
 # net = jetson.inference.poseNet(opt.network, sys.argv, opt.threshold)
-net = jetson.inference.poseNet("resnet18-body", sys.argv, 0.15)
+net = jetson.inference.poseNet("resnet18-body", sys.argv, 0.17)
 
 # create video sources & outputs
-camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
+# camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
+camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=720"])
 # camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=780"])
 output = jetson.utils.videoOutput("display://0")
 
@@ -119,12 +121,15 @@ head_y_angle_p = 80
 head_y_angle_s = 80
 
 last_cmd_time = time.time()
+last_head_time = time.time()
 last_send_time = time.time()
 
 hand_R_x = 0
 hand_R_y = 0
+hand_R_z = 0
 hand_L_x = 0
 hand_L_y = 0
+hand_L_z = 0
 
 shoulders_w = 1
 pt_6x = 0
@@ -191,21 +196,26 @@ while True:
             the_y = the_y_p
         
         print(f'Eyes x:{the_x} y:{the_y}')
+        
+        f_k = 0.1
 
-        shoulders_w = math.sqrt( (pts_x[6]-pts_x[5])**2 + (pts_y[6]-pts_y[5])**2 )
-        hand_R_x = 0.8*hand_R_x + 0.2 * max(0, pts_x[6] - pts_x[10])/shoulders_w
-        hand_L_x = 0.8*hand_L_x + 0.2 * max(0, pts_x[9] - pts_x[5])/shoulders_w
+        shoulders_w = 1 + math.sqrt( (pts_x[6]-pts_x[5])**2 + (pts_y[6]-pts_y[5])**2 )
+        hand_R_x = f_k*hand_R_x + (1-f_k) * max(0, pts_x[6] - pts_x[10])/shoulders_w
+        hand_L_x = f_k*hand_L_x + (1-f_k) * max(0, pts_x[9] - pts_x[5])/shoulders_w
 
-        hand_R_y = 0.8*hand_R_y + 0.2*(pts_y[10] - pts_y[6])/shoulders_w
-        hand_L_y = 0.8*hand_L_y + 0.2*(pts_y[9] - pts_y[5])/shoulders_w
+        hand_R_y = f_k*hand_R_y + (1-f_k)*(pts_y[10] - pts_y[6])/shoulders_w
+        hand_L_y = f_k*hand_L_y + (1-f_k)*(pts_y[9] - pts_y[5])/shoulders_w
 
-        print(f'Hands L x:{hand_L_x}  R x:{hand_R_x}')
-        print(f'Hands L y:{hand_L_y}  R y:{hand_R_y}')
+        hand_R_z = f_k*hand_R_z + (1-f_k)*(pts_x[6] - pts_x[8])/shoulders_w
+        hand_L_z = f_k*hand_L_z + (1-f_k)*(pts_x[7] - pts_x[5])/shoulders_w
+
+        print(f'Hands L x:{hand_L_x}  R x:{hand_R_x} R z:{hand_R_z}')
+        print(f'Hands L y:{hand_L_y}  R y:{hand_R_y} R z:{hand_R_z}')
 
 
         now = time.time()
         if True:
-            head_x_angle = 5 + 160 * (1 - the_x)
+            head_x_angle = 42 + 90 * (1 - the_x)
             head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
             head_x_angle = max(5,min(head_x_angle,175))
             
@@ -215,8 +225,10 @@ while True:
 
             print(f'x: {head_x_angle} y: {head_y_angle}')
             
-            if now > last_send_time + 25/1000:
-                msg = ''
+            msg = ''
+            
+            if now > last_head_time + 200/1000:
+                last_head_time = now
                 if abs(head_x_angle - head_x_angle_s) > 1:
                     msg += f'<41,7,{int(head_x_angle)},0>'
                     head_x_angle_s = head_x_angle
@@ -225,19 +237,16 @@ while True:
                     msg += f' <41,6,{int(head_y_angle)},0>'
                     head_y_angle_s = head_y_angle
 
-                hand_msg = ' '
-                # hand_msg += setHandIK(-hand_L_x, -hand_L_y, hand_L_x, h=0)
-                hand_msg += setHandIK(0.5, -hand_L_y, hand_L_x, h=1)
-                # hand_msg += ' '
-                # hand_msg += setHandIK(hand_R_x, hand_R_y, hand_R_x, h=1)
-                hand_msg += setHandIK(0.5, -hand_R_y, hand_R_x, h=0)
-
-                print(hand_msg)
-                msg += hand_msg
-
                 if msg != '':
                     print(msg)
                     ser.write(msg.encode())
+
+            if now > last_send_time + 50/1000:
+                hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
+                ser.write(hand_msg.encode())
+                
+                hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
+                ser.write(hand_msg.encode())
 
                 last_send_time = now
 
