@@ -90,6 +90,7 @@ parser.add_argument("output_URI", type=str, default="", nargs='?', help="URI of 
 parser.add_argument("--network", type=str, default="resnet18-body", help="pre-trained model to load (see below for options)")
 parser.add_argument("--overlay", type=str, default="links,keypoints", help="pose overlay flags (e.g. --overlay=links,keypoints)\nvalid combinations are:  'links', 'keypoints', 'boxes', 'none'")
 parser.add_argument("--threshold", type=float, default=0.15, help="minimum detection threshold to use") 
+parser.add_argument("--disp", type=int, default=1, help="state to work with display or without") 
 
 try:
 	opt = parser.parse_known_args()[0]
@@ -103,9 +104,8 @@ except:
 net = jetson.inference.poseNet("resnet18-body", sys.argv, 0.17)
 
 # create video sources & outputs
-# camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
-camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=720"])
-# camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=780"])
+camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
+#camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=720"])
 output = jetson.utils.videoOutput("display://0")
 
 # preparing head control
@@ -156,11 +156,12 @@ while True:
     #     print(pose.Keypoints)
     #     print('Links', pose.Links)
 
-    # render the image
-    output.Render(img)
+    if opt.disp:
+        # render the image
+        output.Render(img)
 
-    # update the title bar
-    output.SetStatus("{:s} | Network {:.0f} FPS".format(opt.network, net.GetNetworkFPS()))
+        # update the title bar
+        output.SetStatus("{:s} | Network {:.0f} FPS".format(opt.network, net.GetNetworkFPS()))
 
     # print out performance info
     net.PrintProfilerTimes()
