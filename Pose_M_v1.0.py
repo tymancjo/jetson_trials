@@ -53,6 +53,7 @@ def setHandIK(x, y, z=0, h=0, a0=60):
     if gamma < 0: gamma = 360 + gamma
     gamma *= 160/76 #to map the move to the servo 76deg to 160deg servo
     gamma = max(0,min(160,gamma))
+    print(f'gamma: {gamma}')
 
     psi = dzetta - (180 - fi)/2
     psi -= a0
@@ -70,7 +71,6 @@ def setHandIK(x, y, z=0, h=0, a0=60):
         cmd_str += f'<41,13,{int(max(0,gamma))},0> '
     
     return cmd_str
-
 # connection to serial
 ser = serial.Serial(
     port='/dev/ttyUSB0',
@@ -141,13 +141,6 @@ for _ in range(20):
     pts_y.append(0)
 
 
-# some stuff to keep track of the all body turning
-last_turn_time = time.time()
-turn_delay = 1 # how long to wait to make a turn
-body_angle = 0 # to track the body angle position
-body_angle_limit = 60 # the total arc for allowed move
-
-
 # process frames until the user exits
 while True:
     # capture the next image
@@ -183,6 +176,8 @@ while True:
         the_x = 0;
         the_y = 0;
         points_n = 0;
+        
+        
 
         for p in points:
             # print(p)
@@ -221,71 +216,46 @@ while True:
 
 
         now = time.time()
-
-        # Handling the movements
-        head_x_angle = 42 + 90 * (1 - the_x)
-        head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
-        head_x_angle = max(5,min(head_x_angle,175))
-        
-        head_y_angle = 200 * (the_y - 0.5) 
-        head_y_angle = 0.7 * head_y_angle_p + 0.3 * head_y_angle
-        head_y_angle = max(5,min(head_y_angle,100))
-
-        print(f'x: {head_x_angle} y: {head_y_angle} body:{body_angle}')
-        
-        msg = ''
-        
-        if now > last_head_time + 200/1000:
-            last_head_time = now
-            if abs(head_x_angle - head_x_angle_s) > 1:
-                msg += f'<41,7,{int(head_x_angle)},0>'
-                head_x_angle_s = head_x_angle
-
-            if abs(head_y_angle - head_y_angle_s) > 1:
-                msg += f' <41,6,{int(head_y_angle)},0>'
-                head_y_angle_s = head_y_angle
-
-            if msg != '':
-                print(msg)
-                ser.write(msg.encode())
-
-        if now > last_send_time + 50/1000:
-            hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
-            ser.write(hand_msg.encode())
+        if True:
+            head_x_angle = 42 + 90 * (1 - the_x)
+            head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
+            head_x_angle = max(5,min(head_x_angle,175))
             
-            hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
-            ser.write(hand_msg.encode())
+            head_y_angle = 200 * (the_y - 0.5) 
+            head_y_angle = 0.7 * head_y_angle_p + 0.3 * head_y_angle
+            head_y_angle = max(5,min(head_y_angle,100))
 
-            last_send_time = now
+            print(f'x: {head_x_angle} y: {head_y_angle}')
+            
+            msg = ''
+            
+            if now > last_head_time + 200/1000:
+                last_head_time = now
+                if abs(head_x_angle - head_x_angle_s) > 1:
+                    msg += f'<41,7,{int(head_x_angle)},0>'
+                    head_x_angle_s = head_x_angle
 
-        head_x_angle_p = head_x_angle
-        head_y_angle_p = head_y_angle
+                if abs(head_y_angle - head_y_angle_s) > 1:
+                    msg += f' <41,6,{int(head_y_angle)},0>'
+                    head_y_angle_s = head_y_angle
 
-        # handling the body movement
-        if now > last_turn_time + turn_delay:
-            # calculating the head angle vs the body axis
-            head_angle_abs = head_x_angle - 85
-            if abs(head_angle_abs) > 15:
-                # if the head is more than the 30 deg - we will move body
-                # making the message to the wheels:
-                print(f"Potential move...{head_angle_abs}")
-                if -body_angle_limit < body_angle + 0.5*head_angle_abs < body_angle_limit:
+                if msg != '':
+                    print(msg)
+                    ser.write(msg.encode())
 
-                    wheels_msg = f'<1,0,{int(0.5*head_angle_abs)},0>'
-                    ser.write(wheels_msg.encode())
+            if now > last_send_time + 50/1000:
+                hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
+                ser.write(hand_msg.encode())
+                
+                hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
+                ser.write(hand_msg.encode())
 
-                    body_angle += head_angle_abs
-                    print(f"Body move by {head_angle_abs}")
-                else:
-                    #limiting the amount of body turn
-                    ...
-            else:
-                # otherwise we just reset the body turn timer. 
-                ...
-            last_turn_time = now
-            ...
+                last_send_time = now
 
-        last_cmd_time = now
+            head_x_angle_p = head_x_angle
+            head_y_angle_p = head_y_angle
+
+            last_cmd_time = now
 
     # exit on input/output EOS
     if not camera.IsStreaming() or not output.IsStreaming():
