@@ -102,20 +102,24 @@ except:
 
 # load the pose estimation model
 # net = jetson.inference.poseNet(opt.network, sys.argv, opt.threshold)
-net = jetson.inference.poseNet("resnet18-body", sys.argv, 0.17)
+net = jetson.inference.poseNet("resnet18-body", sys.argv, 0.12)
 
 # create video sources & outputs
-camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
-#camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=720"])
+# camera = jetson.utils.videoSource("csi://0",["--input-width=640", "--input-height=320"])
+camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-height=720"])
 output = jetson.utils.videoOutput("display://0")
 
-# preparing head control
+# preparing control
+persons = 0
+
 the_x_p = 0
 the_y_p = 0
 
 head_x_angle = 80
 head_x_angle_p = 80
 head_x_angle_s = 80
+
+head_x_flag = 1
 
 head_y_angle = 80
 head_y_angle_p = 80
@@ -143,9 +147,9 @@ for _ in range(20):
 
 # some stuff to keep track of the all body turning
 last_turn_time = time.time()
-turn_delay = 1 # how long to wait to make a turn
+turn_delay = 1.5 # how long to wait to make a turn
 body_angle = 0 # to track the body angle position
-body_angle_limit = 60 # the total arc for allowed move
+body_angle_limit = 80 # the total arc for allowed move
 
 
 # process frames until the user exits
@@ -175,10 +179,17 @@ while True:
     net.PrintProfilerTimes()
 
     ######### Robot control
+    persons = 0.8 * persons + 0.2 * len(poses)
+    if persons < 0.1:
+        persons = 0
+    
+    now = time.time()
+
     if len(poses):
 
         pose = poses[0]
         points = pose.Keypoints
+        last_cmd_time = now
 
         the_x = 0;
         the_y = 0;
@@ -203,26 +214,8 @@ while True:
             the_y = the_y_p
         
         print(f'Eyes x:{the_x} y:{the_y}')
-        
-        f_k = 0.1
 
-        shoulders_w = 1 + math.sqrt( (pts_x[6]-pts_x[5])**2 + (pts_y[6]-pts_y[5])**2 )
-        hand_R_x = f_k*hand_R_x + (1-f_k) * max(0, pts_x[6] - pts_x[10])/shoulders_w
-        hand_L_x = f_k*hand_L_x + (1-f_k) * max(0, pts_x[9] - pts_x[5])/shoulders_w
-
-        hand_R_y = f_k*hand_R_y + (1-f_k)*(pts_y[10] - pts_y[6])/shoulders_w
-        hand_L_y = f_k*hand_L_y + (1-f_k)*(pts_y[9] - pts_y[5])/shoulders_w
-
-        hand_R_z = f_k*hand_R_z + (1-f_k)*(pts_x[6] - pts_x[8])/shoulders_w
-        hand_L_z = f_k*hand_L_z + (1-f_k)*(pts_x[7] - pts_x[5])/shoulders_w
-
-        print(f'Hands L x:{hand_L_x}  R x:{hand_R_x} R z:{hand_R_z}')
-        print(f'Hands L y:{hand_L_y}  R y:{hand_R_y} R z:{hand_R_z}')
-
-
-        now = time.time()
-
-        # Handling the movements
+        # Handling the  head movements
         head_x_angle = 42 + 90 * (1 - the_x)
         head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
         head_x_angle = max(5,min(head_x_angle,175))
@@ -234,7 +227,6 @@ while True:
         print(f'x: {head_x_angle} y: {head_y_angle} body:{body_angle}')
         
         msg = ''
-        
         if now > last_head_time + 200/1000:
             last_head_time = now
             if abs(head_x_angle - head_x_angle_s) > 1:
@@ -248,15 +240,6 @@ while True:
             if msg != '':
                 print(msg)
                 ser.write(msg.encode())
-
-        if now > last_send_time + 50/1000:
-            hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
-            ser.write(hand_msg.encode())
-            
-            hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
-            ser.write(hand_msg.encode())
-
-            last_send_time = now
 
         head_x_angle_p = head_x_angle
         head_y_angle_p = head_y_angle
@@ -284,8 +267,73 @@ while True:
                 ...
             last_turn_time = now
             ...
+    
+    # Handling the head if no one in frame
+    if persons < 0.5:
+        if now > last_cmd_time + 5:
+            #if we don't see anyone for 5 sec
+            last_cmd_time = now
 
-        last_cmd_time = now
+            head_x_angle = 85 + 60 * head_x_flag
+            # head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
+            head_x_angle_p = head_x_angle
+            head_x_flag *= -1
+
+            msg += f'<41,7,{int(head_x_angle)},0>'
+            ser.write(msg.encode())
+
+
+
+    # Handling the hands movement
+    if 0.5 < persons < 2:
+        # if we see single person - we mimic the moves
+        f_k = 0.5
+        shoulders_w = 1 + math.sqrt( (pts_x[6]-pts_x[5])**2 + (pts_y[6]-pts_y[5])**2 )
+        hand_R_x = f_k*hand_R_x + (1-f_k) * max(0, pts_x[6] - pts_x[10])/shoulders_w
+        hand_L_x = f_k*hand_L_x + (1-f_k) * max(0, pts_x[9] - pts_x[5])/shoulders_w
+
+        hand_R_y = f_k*hand_R_y + (1-f_k)*(pts_y[10] - pts_y[6])/shoulders_w
+        hand_L_y = f_k*hand_L_y + (1-f_k)*(pts_y[9] - pts_y[5])/shoulders_w
+
+        hand_R_z = f_k*hand_R_z + (1-f_k)*(pts_x[6] - pts_x[8])/shoulders_w
+        hand_L_z = f_k*hand_L_z + (1-f_k)*(pts_x[7] - pts_x[5])/shoulders_w
+    
+    elif persons < 0.5:
+        # if no one in the frame - we make a gesture
+        hand_R_x = 0.5
+        hand_L_x = 0.5
+
+        hand_R_y = 0.5
+        hand_L_y = 0.5
+
+        hand_R_z = 1
+        hand_L_z = 1
+    
+    else:
+        # many persons in the frame - other gesture
+        hand_R_x = 0.1
+        hand_L_x = 0.1
+
+        hand_R_y = 1 
+        hand_L_y = 1
+
+        hand_R_z = 2
+        hand_L_z = 2
+    
+
+    print(f'************** PERSONS {persons} ***********')
+    print(f'Hands L x:{hand_L_x}  R x:{hand_R_x} R z:{hand_R_z}')
+    print(f'Hands L y:{hand_L_y}  R y:{hand_R_y} R z:{hand_R_z}')
+
+    if now > last_send_time + 50/1000:
+        hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
+        ser.write(hand_msg.encode())
+        
+        hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
+        ser.write(hand_msg.encode())
+
+        last_send_time = now
+
 
     # exit on input/output EOS
     if not camera.IsStreaming() or not output.IsStreaming():
