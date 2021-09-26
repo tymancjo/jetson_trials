@@ -35,8 +35,8 @@ def setHandIK(x, y, z=0, h=0, a0=60):
     """
     Inverse Kinematic model for hands
     x,y,z palm position in relative space (-1,-1) to (1,1)
-    h - hand number
-    the z - controls the gamma only
+    h - hand number (0-left, 1-right, 3-both)
+    the z - controls the gamma only (turn of the shoulder)
     """
     m = math.sqrt(x**2 + y**2)
 
@@ -110,6 +110,7 @@ camera = jetson.utils.videoSource("csi://0",["--input-width=1280", "--input-heig
 output = jetson.utils.videoOutput("display://0")
 
 # preparing control
+# few initial values to keep the starting point coherent 
 persons = 0
 
 the_x_p = 0
@@ -144,13 +145,11 @@ for _ in range(20):
     pts_x.append(0)
     pts_y.append(0)
 
-
-# some stuff to keep track of the all body turning
+# some stuff to keep track of the all body turning (on wheels)
 last_turn_time = time.time()
 turn_delay = 1.5 # how long to wait to make a turn
 body_angle = 0 # to track the body angle position
 body_angle_limit = 80 # the total arc for allowed move
-
 
 # process frames until the user exits
 while True:
@@ -160,33 +159,28 @@ while True:
     # perform pose estimation (with overlay)
     poses = net.Process(img, overlay=opt.overlay)
 
-    # print the pose results
-    print("detected {:d} objects in image".format(len(poses)))
-
-    # for pose in poses:
-    #     print(pose)
-    #     print(pose.Keypoints)
-    #     print('Links', pose.Links)
-
     if opt.disp:
+        # if the display is suppose to be shown
         # render the image
         output.Render(img)
-
         # update the title bar
         output.SetStatus("{:s} | Network {:.0f} FPS".format(opt.network, net.GetNetworkFPS()))
 
     # print out performance info
-    net.PrintProfilerTimes()
+    # net.PrintProfilerTimes()
 
     ######### Robot control
+    # persons is used to determine the behavior 
+    # it's time domain filtered to get immune for sudden changes.
     persons = 0.8 * persons + 0.2 * len(poses)
     if persons < 0.1:
         persons = 0
     
+    # memorizing this loop execution moment
     now = time.time()
 
     if len(poses):
-
+        # if any pose (person) is detected
         pose = poses[0]
         points = pose.Keypoints
         last_cmd_time = now
@@ -239,6 +233,7 @@ while True:
 
             if msg != '':
                 print(msg)
+                # sending the message to robot via serial
                 ser.write(msg.encode())
 
         head_x_angle_p = head_x_angle
@@ -255,6 +250,7 @@ while True:
                 if -body_angle_limit < body_angle + 0.5*head_angle_abs < body_angle_limit:
 
                     wheels_msg = f'<1,0,{int(0.5*head_angle_abs)},0>'
+                    # sending the message to robot via serial
                     ser.write(wheels_msg.encode())
 
                     body_angle += head_angle_abs
@@ -272,20 +268,19 @@ while True:
     if persons < 0.5:
         if now > last_cmd_time + 5:
             #if we don't see anyone for 5 sec
+            # and we will look left <-> right - like looking around
             last_cmd_time = now
 
-            head_x_angle = 85 + 60 * head_x_flag
-            # head_x_angle = 0.7 * head_x_angle_p + 0.3 * head_x_angle
+            head_x_angle = 85 - 45 * head_x_flag
             head_x_angle_p = head_x_angle
             head_x_flag *= -1
 
-            msg += f'<41,7,{int(head_x_angle)},0>'
+            msg = f'<41,7,{int(head_x_angle)},0>'
+            # sending the message to robot via serial
             ser.write(msg.encode())
 
-
-
     # Handling the hands movement
-    if 0.5 < persons < 2:
+    if 0.5 < persons < 1.7:
         # if we see single person - we mimic the moves
         f_k = 0.5
         shoulders_w = 1 + math.sqrt( (pts_x[6]-pts_x[5])**2 + (pts_y[6]-pts_y[5])**2 )
@@ -319,21 +314,22 @@ while True:
 
         hand_R_z = 2
         hand_L_z = 2
-    
 
+    # concole info out
     print(f'************** PERSONS {persons} ***********')
     print(f'Hands L x:{hand_L_x}  R x:{hand_R_x} R z:{hand_R_z}')
     print(f'Hands L y:{hand_L_y}  R y:{hand_R_y} R z:{hand_R_z}')
 
     if now > last_send_time + 50/1000:
         hand_msg = setHandIK(-0.1+hand_L_x, -1.0*hand_L_y, max(0,2*hand_L_z-0.7), h=1)
+        # sending the message to robot via serial
         ser.write(hand_msg.encode())
         
         hand_msg = setHandIK(-0.1+hand_R_x, -1.0*hand_R_y, max(0,2*hand_R_z-0.7), h=0)
+        # sending the message to robot via serial
         ser.write(hand_msg.encode())
 
         last_send_time = now
-
 
     # exit on input/output EOS
     if not camera.IsStreaming() or not output.IsStreaming():
