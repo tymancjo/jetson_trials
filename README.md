@@ -3,6 +3,8 @@
 ## Introduction
 This repository contain the python based code build to be used on the NVidia Jetson Nano 2GB unit as a "brain" to control the Mariola robot.
 
+![Mariola](img/mariola_01.jpeg)
+
 Mariola ( [Mariola's repo](https://github.com/tymancjo/Mariola) ) is a home made robot unit build up to experiment nad learn about the basic robotic mechanics, behavior and to experiment with human-robot interactions. 
 
 The robot developed along as every next step brought the new ideas and challenges. However as cool as the mechanics itself became - mine idea of robot is to make it behave at least in some way autonomic. 
