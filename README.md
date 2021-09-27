@@ -41,6 +41,9 @@ Those angles are sent via serial (UART) connection to the master Arduino Nano un
 The rest is done by particular subsystem control uC (each one have it own Arduino Nano). 
 
 ## Demo
+General overview talk is in the video:
+[Mariola Overview](https://youtu.be/n5zZ9u3IKxk)
+
 You can find some videos of the each iteration of the work over this Jetson implementation in my YT playlist:
 [With Jetson Nano](https://youtube.com/playlist?list=PL9g9iwA2sCQyGAkyknFpO8RpEV-7sKZf-)
 The videos are mainly in Polish for the moment. 
